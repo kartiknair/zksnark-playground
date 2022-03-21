@@ -17,8 +17,12 @@ use bellman::{
 };
 use bls12_381::Bls12;
 use ff::PrimeField;
+use jemalloc_ctl::{epoch, stats};
 use rand::thread_rng;
 use sha2::{Digest, Sha256};
+
+#[global_allocator]
+static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
 fn sha256_le<Scalar: PrimeField, CS: ConstraintSystem<Scalar>>(
     mut cs: CS,
@@ -84,7 +88,9 @@ impl<Scalar: PrimeField> Circuit<Scalar> for MyCircuit {
     }
 }
 
-fn main() {
+fn zksnark_example() {
+    epoch::advance().unwrap();
+
     println!("-- zksnark simple quadratic example");
     let quadratic_zk_code = r#"
         (in x a b c)
@@ -115,6 +121,8 @@ fn main() {
     let weights = zksnark::groth16::weights(quadratic_zk_code, assignments).unwrap();
     let (sigmag1, sigmag2) = zksnark::groth16::setup(&qap);
 
+    let allocated_pre_proof_gen = stats::allocated::read().unwrap();
+
     let mut begin = Instant::now();
     let proof = zksnark::groth16::prove(&qap, (&sigmag1, &sigmag2), &weights);
     println!(
@@ -122,6 +130,13 @@ fn main() {
         humantime::format_duration(begin.elapsed()).to_string()
     );
     println!("size (proof): {} bytes", size_of_val(&proof));
+
+    epoch::advance().unwrap();
+    let allocated = stats::allocated::read().unwrap();
+    println!(
+        "memory (proof generation): {} bytes",
+        allocated - allocated_pre_proof_gen
+    );
 
     begin = Instant::now();
 
@@ -137,6 +152,11 @@ fn main() {
         humantime::format_duration(begin.elapsed()).to_string()
     );
     println!("verification result: {}", verification_result);
+    assert!(verification_result);
+}
+
+fn bellman_example() {
+    epoch::advance().unwrap();
 
     println!("\n-- bellman SHA256 example");
 
@@ -171,6 +191,8 @@ fn main() {
         preimage: Some(preimage),
     };
 
+    let allocated_pre_proof_gen = stats::allocated::read().unwrap();
+
     // Create a Groth16 proof with our parameters.
     let proof = bellman::groth16::create_random_proof(c, &params, &mut thread_rng()).unwrap();
     println!(
@@ -178,6 +200,13 @@ fn main() {
         humantime::format_duration(begin.elapsed()).to_string()
     );
     println!("size (proof): {} bytes", size_of_val(&proof));
+
+    epoch::advance().unwrap();
+    let allocated = stats::allocated::read().unwrap();
+    println!(
+        "memory (proof generation): {} bytes",
+        allocated - allocated_pre_proof_gen
+    );
     begin = Instant::now();
 
     // Pack the hash as inputs for proof verification.
@@ -190,4 +219,20 @@ fn main() {
         humantime::format_duration(begin.elapsed()).to_string()
     );
     println!("verification result: {}", verification_result.is_ok());
+    assert!(verification_result.is_ok());
+}
+
+#[test]
+fn zksnark_example_test() {
+    zksnark_example();
+}
+
+#[test]
+fn bellman_example_test() {
+    bellman_example();
+}
+
+fn main() {
+    zksnark_example();
+    bellman_example();
 }

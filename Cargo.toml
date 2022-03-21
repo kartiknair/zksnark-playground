@@ -13,4 +13,8 @@ ff = "0.11.0"
 pairing = "0.21.0"
 rand = "0.8.5"
 sha2 = "0.10.2"
+
 humantime = "2.1.0"
+
+jemalloc-ctl = "0.3.3"
+jemallocator = "0.3.2"
