@@ -20,6 +20,29 @@ use ff::PrimeField;
 use rand::thread_rng;
 use sha2::{Digest, Sha256};
 
+fn sha256_le<Scalar: PrimeField, CS: ConstraintSystem<Scalar>>(
+    mut cs: CS,
+    data: &[Boolean],
+) -> Result<Vec<Boolean>, SynthesisError> {
+    // Flip endianness of each input byte
+    let input: Vec<_> = data
+        .chunks(8)
+        .map(|c| c.iter().rev())
+        .flatten()
+        .cloned()
+        .collect();
+
+    let res = sha256(cs.namespace(|| "SHA-256(input)"), &input)?;
+
+    // Flip endianness of each output byte
+    Ok(res
+        .chunks(8)
+        .map(|c| c.iter().rev())
+        .flatten()
+        .cloned()
+        .collect())
+}
+
 struct MyCircuit {
     /// The input to SHA-256d we are proving that we know. Set to `None` when we
     /// are verifying a proof (and do not have the witness data).
@@ -54,7 +77,7 @@ impl<Scalar: PrimeField> Circuit<Scalar> for MyCircuit {
             .collect::<Result<Vec<_>, _>>()?;
 
         // Compute hash = SHA-256d(preimage).
-        let hash = sha256(cs.namespace(|| "SHA-256d(preimage)"), &preimage_bits)?;
+        let hash = sha256_le(cs.namespace(|| "SHA-256(preimage)"), &preimage_bits)?;
 
         // Expose the vector of 32 boolean variables as compact public inputs.
         multipack::pack_into_inputs(cs.namespace(|| "pack hash"), &hash)
@@ -103,7 +126,7 @@ fn main() {
     begin = Instant::now();
 
     // Verify the statement "I know x and y such that x^2 + x == y"
-    zksnark::groth16::verify(
+    let verification_result = zksnark::groth16::verify(
         &qap,
         (sigmag1, sigmag2),
         &vec![FrLocal::from(0), FrLocal::from(0)],
@@ -113,6 +136,7 @@ fn main() {
         "time (proof verification): {}",
         humantime::format_duration(begin.elapsed()).to_string()
     );
+    println!("verification result: {}", verification_result);
 
     println!("\n-- bellman SHA256 example");
 
@@ -160,9 +184,10 @@ fn main() {
     let hash_bits = multipack::bytes_to_bits_le(&hash);
     let inputs = multipack::compute_multipacking(&hash_bits);
 
-    bellman::groth16::verify_proof(&pvk, &proof, &inputs);
+    let verification_result = bellman::groth16::verify_proof(&pvk, &proof, &inputs);
     println!(
         "time (proof verification): {}",
         humantime::format_duration(begin.elapsed()).to_string()
     );
+    println!("verification result: {}", verification_result.is_ok());
 }
